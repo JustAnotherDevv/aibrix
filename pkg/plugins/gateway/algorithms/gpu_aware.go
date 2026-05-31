@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"strconv"
 
 	"github.com/vllm-project/aibrix/pkg/cache"
 	metrics "github.com/vllm-project/aibrix/pkg/metrics"
@@ -231,53 +230,6 @@ func (r gpuAwareRouter) Route(ctx *types.RoutingContext, readyPodList types.PodL
 	return ctx.TargetAddress(), nil
 }
 
-// ParseGpuConfig parses a GPU-aware routing config string
-// Format: "gpu-aware" or "gpu-aware:weight=2,priority=latency"
-func ParseGpuConfig(config string) map[string]string {
-	result := make(map[string]string)
-	if config == "" {
-		return result
-	}
-
-	// Simple key=value parsing
-	parts := splitConfig(config)
-	for _, part := range parts {
-		kv := splitKV(part)
-		if len(kv) == 2 {
-			result[kv[0]] = kv[1]
-		}
-	}
-	return result
-}
-
-func splitConfig(s string) []string {
-	var result []string
-	current := ""
-	for _, c := range s {
-		if c == ',' {
-			if current != "" {
-				result = append(result, current)
-			}
-			current = ""
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
-}
-
-func splitKV(s string) []string {
-	for i, c := range s {
-		if c == '=' {
-			return []string{s[:i], s[i+1:]}
-		}
-	}
-	return []string{s}
-}
-
 // GetGpuTypeFromPod is exported for use in tests
 func GetGpuTypeFromPod(pod *v1.Pod) string {
 	if gpuType, ok := pod.Labels["gpu-type"]; ok {
@@ -313,13 +265,4 @@ func FormatGpuInfo(pod *v1.Pod) string {
 		}
 	}
 	return fmt.Sprintf("%s x%d (%.0fGiB)", gpuType, gpuCount, capacity*float64(gpuCount))
-}
-
-// parseIntOrZero parses a string to int, returning 0 on failure
-func parseIntOrZero(s string) int {
-	i, err := strconv.Atoi(s)
-	if err != nil {
-		return 0
-	}
-	return i
 }

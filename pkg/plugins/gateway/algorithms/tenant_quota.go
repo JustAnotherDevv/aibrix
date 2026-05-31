@@ -20,14 +20,12 @@ limitations under the License.
 package routingalgorithms
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -745,12 +743,4 @@ func (r *tenantQuotaRouter) HandleAdminRequest(tenantID string, body []byte) err
 	}
 	r.registry.SetOverride(tenantID, quota)
 	return nil
-}
-
-// Background context to support cleanup
-var cleanupCtx, cancelCleanup = context.WithCancel(context.Background())
-
-func init() {
-	// Register the router
-	_ = strconv.Itoa // satisfy import
 }

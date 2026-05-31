@@ -448,11 +448,6 @@ func clampReplicas(replicas int32, cfg CPAConfig) int32 {
 	if replicas < 1 {
 		replicas = 1
 	}
-	if cfg.MaxScaleUpRate > 0 {
-		// Soft cap: don't grow absurdly in one step. Caller will
-		// tighten with applyRateLimits anyway.
-		_ = cfg.MaxScaleUpRate
-	}
 	return replicas
 }
 
