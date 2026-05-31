@@ -104,7 +104,42 @@ spec:
                 - HPA
                 - KPA
                 - APA
+                - CPA
                 type: string
+              costOptimization:
+                description: |-
+                  CostOptimization controls cost-aware behavior for the CPA strategy.
+                  Ignored for HPA/KPA/APA. When ScalingStrategy is CPA, the controller
+                  picks the cheapest (replica count x GPU type) combination that satisfies
+                  the target metric value.
+                properties:
+                  mode:
+                    description: Mode determines how the CPA algorithm trades cost against performance.
+                    enum:
+                    - min-cost
+                    - balanced
+                    - min-latency
+                    - spot-first
+                    - reserved-first
+                    type: string
+                  maxCostPerHour:
+                    description: MaxCostPerHour is a hard budget cap in USD/hour.
+                    format: double
+                    type: number
+                  candidateGpuTypes:
+                    description: CandidateGPUTypes is the set of GPU types CPA is allowed to choose from.
+                    items:
+                      type: string
+                    type: array
+                  preferredCostClass:
+                    description: PreferredCostClass biases the algorithm toward a particular pricing class.
+                    enum:
+                    - spot
+                    - reserved
+                    - on-demand
+                    - any
+                    type: string
+                type: object
               subTargetSelector:
                 properties:
                   roleName:

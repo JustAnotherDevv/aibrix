@@ -53,4 +53,16 @@ const (
 	// ScaleToZeroLabel enables/disables scaling to zero replicas
 	// Value: bool (e.g., "true", "false")
 	ScaleToZeroLabel = AutoscalingLabelPrefix + "scale-to-zero"
+
+	// CostAwareModeLabel sets the CPA optimization mode.
+	// Value: string in {min-cost, balanced, min-latency, spot-first, reserved-first}
+	CostAwareModeLabel = AutoscalingLabelPrefix + "cost-aware-mode"
+
+	// CostAwareBudgetLabel sets the maximum hourly budget in USD.
+	// CPA never exceeds this. Value: float (e.g., "100.0")
+	CostAwareBudgetLabel = AutoscalingLabelPrefix + "cost-aware-budget"
+
+	// CostAwareCostClassLabel biases the algorithm toward a particular pricing class.
+	// Value: string in {spot, reserved, on-demand, any}
+	CostAwareCostClassLabel = AutoscalingLabelPrefix + "cost-aware-cost-class"
 )

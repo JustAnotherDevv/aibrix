@@ -68,6 +68,8 @@ func NewScalingAlgorithm(strategy autoscalingv1alpha1.ScalingStrategyType) Scali
 		return &APAAlgorithm{}
 	case autoscalingv1alpha1.HPA:
 		return &HPAAlgorithm{}
+	case autoscalingv1alpha1.CPA:
+		return NewCPAAlgorithm()
 	default:
 		return &KPAAlgorithm{} // Default to KPA
 	}

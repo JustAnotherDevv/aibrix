@@ -1,0 +1,84 @@
+# ConfigMap holding the cost catalog for CPA + gpu-cost-aware router.
+#
+# CPA and gpu-cost-aware both read the same catalog. Default values are
+# compiled into the gateway-plugin / controller-manager binary. This
+# ConfigMap is for production overrides (e.g., reflecting negotiated
+# enterprise pricing or new GPU SKUs).
+#
+# Mount path inside the pod: /etc/aibrix/cost-catalog.json
+# Set env var AIBRIX_COST_CATALOG_PATH to override.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aibrix-cost-catalog
+  namespace: aibrix-system
+  labels:
+    app.kubernetes.io/name: aibrix
+    app.kubernetes.io/component: cost-catalog
+data:
+  cost-catalog.json: |
+    {
+      "version": "1",
+      "currency": "USD",
+      "lastUpdated": "2026-06-01T00:00:00Z",
+      "gpus": [
+        {
+          "type": "nvidia-h200-141gb",
+          "onDemandUSDPerHour": 5.00,
+          "throughputQPSPerPod": 22.0,
+          "throughputTokensPerPod": 4400,
+          "memoryGB": 141,
+          "tdpWatts": 700,
+          "computeScore": 1.00
+        },
+        {
+          "type": "nvidia-h100-80gb",
+          "onDemandUSDPerHour": 4.00,
+          "throughputQPSPerPod": 20.0,
+          "throughputTokensPerPod": 4000,
+          "memoryGB": 80,
+          "tdpWatts": 700,
+          "computeScore": 0.95
+        },
+        {
+          "type": "nvidia-a100-80gb",
+          "onDemandUSDPerHour": 2.50,
+          "throughputQPSPerPod": 14.0,
+          "throughputTokensPerPod": 2800,
+          "memoryGB": 80,
+          "tdpWatts": 400,
+          "computeScore": 0.65
+        },
+        {
+          "type": "nvidia-l40s-48gb",
+          "onDemandUSDPerHour": 1.20,
+          "throughputQPSPerPod": 8.0,
+          "throughputTokensPerPod": 1600,
+          "memoryGB": 48,
+          "tdpWatts": 350,
+          "computeScore": 0.40
+        },
+        {
+          "type": "nvidia-l4-24gb",
+          "onDemandUSDPerHour": 0.80,
+          "throughputQPSPerPod": 4.5,
+          "throughputTokensPerPod": 900,
+          "memoryGB": 24,
+          "tdpWatts": 72,
+          "computeScore": 0.20
+        },
+        {
+          "type": "nvidia-t4-16gb",
+          "onDemandUSDPerHour": 0.50,
+          "throughputQPSPerPod": 2.5,
+          "throughputTokensPerPod": 500,
+          "memoryGB": 16,
+          "tdpWatts": 70,
+          "computeScore": 0.12
+        }
+      ],
+      "discounts": {
+        "spot": 0.30,
+        "reserved": 0.60
+      }
+    }

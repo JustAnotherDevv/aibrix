@@ -1,0 +1,57 @@
+# PodAutoscaler with CPA (Cost-Aware Pod Autoscaling) strategy.
+#
+# CPA picks the cheapest (replica count x GPU type) combination that meets
+# the throughput target. Useful when:
+#   - You have a budget cap (spec.costOptimization.maxCostPerHour)
+#   - You want to bias toward specific GPU types or pricing classes
+#   - You run on a heterogeneous fleet (H100 + A100 + L4 + T4)
+#
+# This example: 7B chat model, 200 QPS target, $30/hr budget, allow
+# A100 or L40S, prefer spot pricing.
+apiVersion: autoscaling.aibrix.ai/v1alpha1
+kind: PodAutoscaler
+metadata:
+  name: llm-7b-cpa
+  namespace: aibrix-system
+  labels:
+    app: llm-7b
+    autoscaling-strategy: cpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: llm-7b-deployment
+  minReplicas: 2
+  maxReplicas: 50
+  scalingStrategy: CPA
+
+  # Cost optimization config (only honored when scalingStrategy=CPA)
+  costOptimization:
+    # Mode options: min-cost (default) | balanced | min-latency |
+    #               spot-first | reserved-first
+    mode: min-cost
+
+    # Hard budget cap in USD/hour. CPA will never recommend a config
+    # whose total hourly cost exceeds this. Set to 0 to disable.
+    maxCostPerHour: 30.0
+
+    # Only consider these GPU types. Empty list = consider all.
+    # Normalized keys: nvidia-h100-80gb, nvidia-a100-80gb, nvidia-l4-24gb, ...
+    candidateGpuTypes:
+      - nvidia-a100-80gb
+      - nvidia-l40s-48gb
+      - nvidia-l4-24gb
+
+    # Bias toward a pricing class. spot / reserved / on-demand / any.
+    # any = use whatever's available, treat all classes equally.
+    preferredCostClass: spot
+
+  # QPS-based scaling source. CPA reads this value to compute replicas.
+  metricsSources:
+    - metricSourceType: pod
+      protocolType: http
+      endpoint: "{{ .PodIP }}"
+      port: "8000"
+      path: "/metrics"
+      targetMetric: vllm:request_success_total
+      targetValue: "200"  # target 200 QPS per second (summed across pods)

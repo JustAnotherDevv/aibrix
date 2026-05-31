@@ -1,0 +1,92 @@
+# Complete end-to-end deployment: StormService + PodAutoscaler (CPA) +
+# Service + Ingress. Apply this to a running AIBrix cluster.
+#
+# What this does:
+#   1. Spins up a vLLM-powered LLM service (7B model)
+#   2. Wires it to AIBrix's PodAutoscaler using the CPA strategy
+#   3. Exposes it via a Kubernetes Service
+#   4. Sets MinReplicas=2, MaxReplicas=20, $20/hr budget
+#   5. CPA picks A100 or L40S pods based on which is cheaper at any QPS
+#
+# Apply:  kubectl apply -f 05-full-deployment.yaml
+---
+apiVersion: orchestration.aibrix.ai/v1alpha1
+kind: StormService
+metadata:
+  name: llm-7b-cost-optimized
+  namespace: aibrix-system
+  labels:
+    app: llm-7b
+    model: llama-3-8b
+spec:
+  template:
+    schedulerName: volcano
+    containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        args:
+          - --model
+          - meta-llama/Llama-3.1-8B-Instruct
+          - --max-model-len
+          - "4096"
+        resources:
+          requests:
+            nvidia.com/gpu: "1"
+            memory: "32Gi"
+            cpu: "4"
+          limits:
+            nvidia.com/gpu: "1"
+            memory: "32Gi"
+            cpu: "4"
+        ports:
+          - name: http
+            containerPort: 8000
+        env:
+          - name: VLLM_WORKER_MULTIPROC_METHOD
+            value: spawn
+---
+apiVersion: autoscaling.aibrix.ai/v1alpha1
+kind: PodAutoscaler
+metadata:
+  name: llm-7b-cost-optimized-pa
+  namespace: aibrix-system
+  labels:
+    app: llm-7b
+    autoscaling-strategy: cpa
+spec:
+  scaleTargetRef:
+    apiVersion: orchestration.aibrix.ai/v1alpha1
+    kind: StormService
+    name: llm-7b-cost-optimized
+  minReplicas: 2
+  maxReplicas: 20
+  scalingStrategy: CPA
+  costOptimization:
+    mode: min-cost
+    maxCostPerHour: 20.0
+    candidateGpuTypes:
+      - nvidia-a100-80gb
+      - nvidia-l40s-48gb
+      - nvidia-l4-24gb
+    preferredCostClass: any
+  metricsSources:
+    - metricSourceType: pod
+      protocolType: http
+      port: "8000"
+      path: "/metrics"
+      targetMetric: vllm:num_requests_running
+      targetValue: "10"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-7b-cost-optimized
+  namespace: aibrix-system
+spec:
+  selector:
+    app: llm-7b
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: ClusterIP

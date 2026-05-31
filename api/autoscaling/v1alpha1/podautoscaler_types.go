@@ -79,8 +79,42 @@ type PodAutoscalerSpec struct {
 	MetricsSources []MetricSource `json:"metricsSources,omitempty"`
 
 	// ScalingStrategy defines the strategy to use for scaling.
-	// +kubebuilder:validation:Enum={HPA,KPA,APA}
+	// +kubebuilder:validation:Enum={HPA,KPA,APA,CPA}
 	ScalingStrategy ScalingStrategyType `json:"scalingStrategy"`
+
+	// CostOptimization controls cost-aware behavior for the CPA strategy.
+	// Ignored for HPA/KPA/APA. When ScalingStrategy is CPA, the controller
+	// picks the cheapest (replica count x GPU type) combination that satisfies
+	// the target metric value.
+	// +optional
+	CostOptimization *CostOptimizationSpec `json:"costOptimization,omitempty"`
+}
+
+// CostOptimizationSpec defines parameters for the CPA (Cost-aware Pod Autoscaling) strategy.
+type CostOptimizationSpec struct {
+	// Mode determines how the CPA algorithm trades cost against performance.
+	// +kubebuilder:validation:Enum={min-cost,balanced,min-latency,spot-first,reserved-first}
+	// +optional
+	Mode string `json:"mode,omitempty"`
+
+	// MaxCostPerHour is a hard budget cap in USD/hour. CPA will never recommend
+	// a configuration whose total hourly cost exceeds this value. Zero means
+	// no cap.
+	// +optional
+	MaxCostPerHour float64 `json:"maxCostPerHour,omitempty"`
+
+	// CandidateGPUTypes is the set of GPU types CPA is allowed to choose from.
+	// Each entry is a normalized GPU type key (e.g. "nvidia-h100-80gb").
+	// If empty, all GPU types in the catalog are considered.
+	// +optional
+	CandidateGPUTypes []string `json:"candidateGpuTypes,omitempty"`
+
+	// PreferredCostClass biases the algorithm toward a particular pricing
+	// class. "spot" picks spot instances first, "reserved" picks reserved
+	// first, "on-demand" (default) ignores spot/reserved discounts.
+	// +kubebuilder:validation:Enum={spot,reserved,on-demand,any}
+	// +optional
+	PreferredCostClass string `json:"preferredCostClass,omitempty"`
 }
 
 // SubTargetSelector identifies a sub-component within the scale target
@@ -102,6 +136,11 @@ const (
 
 	// APA represents the AiBrix Pod Autoscaling Algorithm
 	APA ScalingStrategyType = "APA"
+
+	// CPA represents the Cost-aware Pod Autoscaling Algorithm.
+	// CPA picks the cheapest (count x GPU type) combination that meets
+	// the throughput target. See pkg/controller/podautoscaler/algorithm/cpa.go.
+	CPA ScalingStrategyType = "CPA"
 )
 
 type MetricSourceType string

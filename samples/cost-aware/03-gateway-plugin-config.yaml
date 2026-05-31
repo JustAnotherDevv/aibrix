@@ -1,0 +1,50 @@
+# Gateway plugin ConfigMap showing how to enable the cost-aware routers.
+#
+# The AIBrix gateway plugin chains multiple routing algorithms with weights.
+# Format: "algo1:weight1,algo2:weight2" — higher weight = stronger preference.
+#
+# This example uses:
+#   - prefix-cache (5x) — route to pod with cached prefix when possible
+#   - gpu-cost-aware (3x) — pick cheapest feasible pod
+#   - least-gpu-cache (1x) — fallback to least-loaded pod
+#
+# Result: requests go to the cheapest pod that has the prompt prefix cached,
+# falling back to the least-loaded pod if no good match.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aibrix-gateway-config
+  namespace: aibrix-system
+  labels:
+    app.kubernetes.io/name: aibrix
+    app.kubernetes.io/component: gateway-plugin
+data:
+  # Router selection — AIBrix picks one routing algorithm per request
+  routing-algorithm.env: "gpu-cost-aware"
+  # For multi-strategy chains, set routing-chain instead (uncomment):
+  # routing-chain.env: "prefix-cache:5,gpu-cost-aware:3,least-gpu-cache:1"
+
+  # Cost-aware strategy weights (used when routing-algorithm=gpu-cost-aware)
+  # These control how the 3 dimensions (cost, perf, power) are combined.
+  # Must sum to 100.
+  cost-weight.env: "85"        # 85% cost optimization
+  performance-weight.env: "10" # 10% performance
+  power-weight.env: "5"        # 5% power consumption
+
+  # Cost-aware constraints (optional)
+  # Reject pods whose per-1k-token cost exceeds this
+  max-cost-per-1k-tokens.env: "0.05"
+  # Reject pods that would exceed this latency
+  max-latency-ms.env: "500"
+  # Reject pods that exceed this power budget per replica
+  power-budget-watts.env: "1000"
+
+  # Tenant quota router config (when routing-algorithm=tenant-quota)
+  # tenants-config-path.env: "/etc/aibrix/tenants.json"
+  # default-tenant-tier.env: "standard"
+
+  # CPA autoscaler env vars (read by controller-manager)
+  # AIBRIX_CPA_MODE: "min-cost"          # cluster-wide default
+  # AIBRIX_CPA_BUDGET: "100.0"           # $/hr cluster-wide cap
+  # AIBRIX_CPA_GPU_TYPES: "nvidia-h100-80gb,nvidia-a100-80gb"
+  # AIBRIX_CPA_COST_CLASS: "any"

@@ -1,0 +1,45 @@
+# Multi-tenant routing example.
+#
+# ConfigMap: per-tenant quota overrides. Mount into gateway-plugin pod.
+# Hot-reload: gateway-plugin watches this file and reloads on change.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aibrix-tenant-config
+  namespace: aibrix-system
+  labels:
+    app.kubernetes.io/name: aibrix
+    app.kubernetes.io/component: tenant-quota
+data:
+  tenants.json: |
+    {
+      "free-tier-customers": {
+        "tier": "free",
+        "requests_per_minute": 10,
+        "tokens_per_minute": 100000,
+        "max_concurrent": 5,
+        "burst_size": 10,
+        "priority": 1,
+        "max_cost_per_hour": 0.5,
+        "allowed_gpu_types": ["nvidia-t4-16gb", "nvidia-l4-24gb"]
+      },
+      "acme-corp": {
+        "tier": "premium",
+        "requests_per_minute": 1000,
+        "tokens_per_minute": 10000000,
+        "max_concurrent": 100,
+        "burst_size": 500,
+        "priority": 20,
+        "max_cost_per_hour": 50.0,
+        "allowed_gpu_types": ["nvidia-h100-80gb", "nvidia-a100-80gb", "nvidia-l40s-48gb"]
+      },
+      "bigco-internal": {
+        "tier": "enterprise",
+        "requests_per_minute": 0,
+        "tokens_per_minute": 0,
+        "max_concurrent": 0,
+        "burst_size": 1000,
+        "priority": 100,
+        "max_cost_per_hour": 0
+      }
+    }
