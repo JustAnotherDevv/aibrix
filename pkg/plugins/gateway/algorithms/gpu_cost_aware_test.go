@@ -38,10 +38,7 @@ func TestGpuCostPerHour(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.gpuType, func(t *testing.T) {
-			cost, ok := gpuCostPerHour[tt.gpuType]
-			if !ok {
-				t.Errorf("GPU type %s not in cost map", tt.gpuType)
-			}
+			cost := lookupGPU(tt.gpuType).CostPerHr
 			if cost != tt.expected {
 				t.Errorf("cost for %s = %.2f, want %.2f", tt.gpuType, cost, tt.expected)
 			}
@@ -51,12 +48,12 @@ func TestGpuCostPerHour(t *testing.T) {
 
 func TestGpuTDPWatts(t *testing.T) {
 	// H100 should be more power-hungry than T4
-	if gpuTDPWatts["nvidia-h100-80gb"] <= gpuTDPWatts["nvidia-t4-16gb"] {
+	if lookupGPU("nvidia-h100-80gb").TDPWatts <= lookupGPU("nvidia-t4-16gb").TDPWatts {
 		t.Error("H100 should have higher TDP than T4")
 	}
 
 	// L4 is very efficient
-	if gpuTDPWatts["nvidia-l4-24gb"] >= gpuTDPWatts["nvidia-a100-80gb"] {
+	if lookupGPU("nvidia-l4-24gb").TDPWatts >= lookupGPU("nvidia-a100-80gb").TDPWatts {
 		t.Error("L4 should have lower TDP than A100")
 	}
 }

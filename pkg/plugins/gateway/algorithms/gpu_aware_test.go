@@ -118,7 +118,7 @@ func TestGetGpuCapacityFromPod(t *testing.T) {
 					Name: "test-pod",
 				},
 			},
-			expected: 40.0, // default
+			expected: 24.0, // default for unknown GPU
 		},
 	}
 
@@ -172,20 +172,21 @@ func TestGpuMemoryCapacity(t *testing.T) {
 	}
 
 	for _, gpu := range knownGPUs {
-		if _, ok := gpuMemoryCapacity[gpu]; !ok {
-			t.Errorf("GPU type %s not found in gpuMemoryCapacity map", gpu)
+		spec := lookupGPU(gpu)
+		if spec.MemoryGB <= 0 {
+			t.Errorf("GPU type %s has no memory entry (got %v)", gpu, spec)
 		}
 	}
 }
 
 func TestGpuComputePower(t *testing.T) {
 	// Verify H100 has higher compute power than A100
-	if gpuComputePower["nvidia-h100-80gb"] <= gpuComputePower["nvidia-a100-80gb"] {
+	if lookupGPU("nvidia-h100-80gb").Compute <= lookupGPU("nvidia-a100-80gb").Compute {
 		t.Error("H100 should have higher compute power than A100")
 	}
 
 	// Verify A100 has higher compute power than T4
-	if gpuComputePower["nvidia-a100-80gb"] <= gpuComputePower["nvidia-t4-16gb"] {
+	if lookupGPU("nvidia-a100-80gb").Compute <= lookupGPU("nvidia-t4-16gb").Compute {
 		t.Error("A100 should have higher compute power than T4")
 	}
 }

@@ -656,10 +656,7 @@ func (r *tenantQuotaRouter) Route(ctx *types.RoutingContext, readyPodList types.
 		klog.V(4).Infof("tenant-quota fallback: tenant=%s pod=%s", tenantID, targetPod.Name)
 	} else {
 		// Record cost (rough estimate)
-		costPerHour := 0.0
-		if c, ok := gpuCostPerHour[GetGpuTypeFromPod(targetPod)]; ok {
-			costPerHour = c
-		}
+		costPerHour := lookupGPU(GetGpuTypeFromPod(targetPod)).CostPerHr
 		// Assume 30s average request duration
 		estCost := costPerHour * (30.0 / 3600.0)
 		if overBudget := ts.RecordCost(estCost); overBudget {

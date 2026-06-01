@@ -29,34 +29,6 @@ import (
 
 const RouterGpuAware types.RoutingAlgorithm = "gpu-aware"
 
-// GPU type memory capacities in GiB (common datacenter GPUs)
-var gpuMemoryCapacity = map[string]float64{
-	"nvidia-a100-80gb":  80.0,
-	"nvidia-a100-40gb":  40.0,
-	"nvidia-h100-80gb":  80.0,
-	"nvidia-h200-141gb": 141.0,
-	"nvidia-l4-24gb":    24.0,
-	"nvidia-l40s-48gb":  48.0,
-	"nvidia-a10g-24gb":  24.0,
-	"nvidia-t4-16gb":    16.0,
-	"nvidia-v100-16gb":  16.0,
-	"nvidia-p100-16gb":  16.0,
-}
-
-// GPU FLOPS ratings relative to A100-80GB (for compute scoring)
-var gpuComputePower = map[string]float64{
-	"nvidia-a100-80gb":  1.0,
-	"nvidia-a100-40gb":  0.5,
-	"nvidia-h100-80gb":  2.0,
-	"nvidia-h200-141gb": 2.2,
-	"nvidia-l4-24gb":    0.12,
-	"nvidia-l40s-48gb":  0.35,
-	"nvidia-a10g-24gb":  0.12,
-	"nvidia-t4-16gb":    0.08,
-	"nvidia-v100-16gb":  0.15,
-	"nvidia-p100-16gb":  0.1,
-}
-
 func init() {
 	Register(RouterGpuAware, NewGpuAwareRouter)
 }
@@ -78,10 +50,7 @@ func NewGpuAwareRouter() (types.Router, error) {
 
 // getGpuComputePower returns the relative compute power for a GPU type
 func (r gpuAwareRouter) getGpuComputePower(gpuType string) float64 {
-	if power, ok := gpuComputePower[gpuType]; ok {
-		return power
-	}
-	return 0.5 // Default for unknown
+	return lookupGPU(gpuType).Compute
 }
 
 // ScoreAll scores pods based on GPU memory headroom relative to GPU type capacity.
@@ -205,11 +174,7 @@ func GetGpuTypeFromPod(pod *v1.Pod) string {
 
 // GetGpuCapacityFromPod is exported for use in tests
 func GetGpuCapacityFromPod(pod *v1.Pod) float64 {
-	gpuType := GetGpuTypeFromPod(pod)
-	if cap, ok := gpuMemoryCapacity[gpuType]; ok {
-		return cap
-	}
-	return 40.0
+	return lookupGPU(GetGpuTypeFromPod(pod)).MemoryGB
 }
 
 // FormatGpuInfo returns a human-readable GPU info string for a pod

@@ -34,35 +34,6 @@ import (
 
 const RouterGpuCostAware types.RoutingAlgorithm = "gpu-cost-aware"
 
-// GPU on-demand pricing in USD per hour (us-east-1, on-demand, reserved instances
-// can be 40-60% cheaper; spot instances 60-90% cheaper but preemptible)
-var gpuCostPerHour = map[string]float64{
-	"nvidia-h200-141gb": 5.00,
-	"nvidia-h100-80gb":  4.00,
-	"nvidia-a100-80gb":  2.50,
-	"nvidia-a100-40gb":  1.80,
-	"nvidia-l40s-48gb":  1.20,
-	"nvidia-l4-24gb":    0.80,
-	"nvidia-a10g-24gb":  0.75,
-	"nvidia-t4-16gb":    0.50,
-	"nvidia-v100-16gb":  0.45,
-	"nvidia-p100-16gb":  0.40,
-}
-
-// GPU thermal design power (TDP) in Watts - used for power-aware scoring
-var gpuTDPWatts = map[string]float64{
-	"nvidia-h200-141gb": 700.0,
-	"nvidia-h100-80gb":  700.0,
-	"nvidia-a100-80gb":  400.0,
-	"nvidia-a100-40gb":  400.0,
-	"nvidia-l40s-48gb":  350.0,
-	"nvidia-l4-24gb":    72.0,
-	"nvidia-a10g-24gb":  150.0,
-	"nvidia-t4-16gb":    70.0,
-	"nvidia-v100-16gb":  300.0,
-	"nvidia-p100-16gb":  250.0,
-}
-
 // RoutingStrategy defines the optimization objective
 type RoutingStrategy int
 
@@ -205,10 +176,7 @@ func NewGpuCostAwareRouter() (types.Router, error) {
 
 // gpuPricing returns the effective cost per hour, applying spot/reserved discounts
 func (r gpuCostAwareRouter) effectiveCostPerHour(gpuType string) float64 {
-	baseCost, ok := gpuCostPerHour[gpuType]
-	if !ok {
-		baseCost = 2.00 // default for unknown
-	}
+	baseCost := lookupGPU(gpuType).CostPerHr
 
 	// Apply discounts based on instance type preferences
 	if r.config.PreferSpot {
@@ -241,11 +209,7 @@ func (r gpuCostAwareRouter) totalCostPerHour(pod *v1.Pod, gpuType string) float6
 
 // totalPowerWatts returns the TDP-based power draw of the pod's GPUs
 func (r gpuCostAwareRouter) totalPowerWatts(pod *v1.Pod, gpuType string) float64 {
-	tdp, ok := gpuTDPWatts[gpuType]
-	if !ok {
-		tdp = 300.0
-	}
-	return tdp * float64(gpuCount(pod))
+	return lookupGPU(gpuType).TDPWatts * float64(gpuCount(pod))
 }
 
 // estimatedTokensPerSecond estimates throughput for a GPU at current utilization
@@ -362,17 +326,11 @@ func (r gpuCostAwareRouter) computeScore(pod *v1.Pod, namespace, model, gpuType 
 }
 
 func getCapacity(gpuType string) float64 {
-	if c, ok := gpuMemoryCapacity[gpuType]; ok {
-		return c
-	}
-	return 0
+	return lookupGPU(gpuType).MemoryGB
 }
 
 func getComputePower(gpuType string) float64 {
-	if p, ok := gpuComputePower[gpuType]; ok {
-		return p
-	}
-	return 0
+	return lookupGPU(gpuType).Compute
 }
 
 // ScoreAll scores all pods with the cost-aware composite score
