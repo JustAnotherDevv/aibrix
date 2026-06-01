@@ -77,48 +77,12 @@ func NewGpuAwareRouter() (types.Router, error) {
 	}, nil
 }
 
-// getGpuType extracts the GPU type from pod labels or node info
-func (r gpuAwareRouter) getGpuType(pod *v1.Pod) string {
-	// Check pod labels first
-	if gpuType, ok := pod.Labels["gpu-type"]; ok {
-		return gpuType
-	}
-	if gpuType, ok := pod.Labels["nvidia.com/gpu.product"]; ok {
-		return gpuType
-	}
-	// Check annotations
-	if gpuType, ok := pod.Annotations["gpu-type"]; ok {
-		return gpuType
-	}
-	// Default to unknown
-	return "unknown"
-}
-
-// getGpuMemoryCapacity returns the memory capacity for a GPU type
-func (r gpuAwareRouter) getGpuMemoryCapacity(gpuType string) float64 {
-	if cap, ok := gpuMemoryCapacity[gpuType]; ok {
-		return cap
-	}
-	// Default assumption for unknown GPUs
-	return 40.0
-}
-
 // getGpuComputePower returns the relative compute power for a GPU type
 func (r gpuAwareRouter) getGpuComputePower(gpuType string) float64 {
 	if power, ok := gpuComputePower[gpuType]; ok {
 		return power
 	}
 	return 0.5 // Default for unknown
-}
-
-// getGpuCount returns the number of GPUs attached to the pod
-func (r gpuAwareRouter) getGpuCount(pod *v1.Pod) int {
-	for _, container := range pod.Spec.Containers {
-		if gpuQty, ok := container.Resources.Limits["nvidia.com/gpu"]; ok {
-			return int(gpuQty.Value())
-		}
-	}
-	return 1 // Default
 }
 
 // ScoreAll scores pods based on GPU memory headroom relative to GPU type capacity.
@@ -130,9 +94,15 @@ func (r gpuAwareRouter) ScoreAll(ctx *types.RoutingContext, readyPodList types.P
 	scored := make([]bool, len(pods))
 
 	for i, pod := range pods {
-		gpuType := r.getGpuType(pod)
-		gpuCapacity := r.getGpuMemoryCapacity(gpuType)
-		gpuCount := r.getGpuCount(pod)
+		gpuType := GetGpuTypeFromPod(pod)
+		gpuCapacity := GetGpuCapacityFromPod(pod)
+		gpuCount := 1
+		for _, c := range pod.Spec.Containers {
+			if q, ok := c.Resources.Limits["nvidia.com/gpu"]; ok {
+				gpuCount = int(q.Value())
+				break
+			}
+		}
 		totalCapacity := gpuCapacity * float64(gpuCount)
 
 		// Get current GPU memory utilization
@@ -176,9 +146,15 @@ func (r gpuAwareRouter) Route(ctx *types.RoutingContext, readyPodList types.PodL
 	var candidatePods []*v1.Pod
 
 	for _, pod := range readyPodList.All() {
-		gpuType := r.getGpuType(pod)
-		gpuCapacity := r.getGpuMemoryCapacity(gpuType)
-		gpuCount := r.getGpuCount(pod)
+		gpuType := GetGpuTypeFromPod(pod)
+		gpuCapacity := GetGpuCapacityFromPod(pod)
+		gpuCount := 1
+		for _, c := range pod.Spec.Containers {
+			if q, ok := c.Resources.Limits["nvidia.com/gpu"]; ok {
+				gpuCount = int(q.Value())
+				break
+			}
+		}
 		totalCapacity := gpuCapacity * float64(gpuCount)
 
 		// Get GPU cache utilization
