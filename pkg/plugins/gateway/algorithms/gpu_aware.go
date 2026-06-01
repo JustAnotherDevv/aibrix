@@ -22,7 +22,6 @@ import (
 	"math/rand"
 
 	"github.com/vllm-project/aibrix/pkg/cache"
-	metrics "github.com/vllm-project/aibrix/pkg/metrics"
 	"github.com/vllm-project/aibrix/pkg/types"
 	v1 "k8s.io/api/core/v1"
 	klog "k8s.io/klog/v2"
@@ -96,29 +95,21 @@ func (r gpuAwareRouter) ScoreAll(ctx *types.RoutingContext, readyPodList types.P
 	for i, pod := range pods {
 		gpuType := GetGpuTypeFromPod(pod)
 		gpuCapacity := GetGpuCapacityFromPod(pod)
-		gpuCount := 1
-		for _, c := range pod.Spec.Containers {
-			if q, ok := c.Resources.Limits["nvidia.com/gpu"]; ok {
-				gpuCount = int(q.Value())
-				break
-			}
-		}
+		gpuCount := gpuCount(pod)
 		totalCapacity := gpuCapacity * float64(gpuCount)
 
 		// Get current GPU memory utilization
-		metricVal, err := r.cache.GetMetricValueByPodModel(pod.Name, pod.Namespace, ctx.Model, metrics.GPUCacheUsagePerc)
+		headroom, err := podHeadroom(pod, ctx, r.cache)
 		if err != nil {
 			klog.V(4).ErrorS(err, "failed to get GPU metrics for pod", "pod", pod.Name)
 			scores[i] = 0
 			scored[i] = false
 			continue
 		}
-
-		currentUtilization := metricVal.GetSimpleValue() // 0.0 - 1.0
+		currentUtilization := 1.0 - headroom
 
 		// Calculate memory headroom: how much GPU memory is available
 		// Score = (1 - utilization) * capacity_weight * compute_weight
-		headroom := 1.0 - currentUtilization
 		capacityWeight := totalCapacity / 80.0 // Normalize to A100-80GB
 		computeWeight := r.getGpuComputePower(gpuType)
 
@@ -148,24 +139,16 @@ func (r gpuAwareRouter) Route(ctx *types.RoutingContext, readyPodList types.PodL
 	for _, pod := range readyPodList.All() {
 		gpuType := GetGpuTypeFromPod(pod)
 		gpuCapacity := GetGpuCapacityFromPod(pod)
-		gpuCount := 1
-		for _, c := range pod.Spec.Containers {
-			if q, ok := c.Resources.Limits["nvidia.com/gpu"]; ok {
-				gpuCount = int(q.Value())
-				break
-			}
-		}
+		gpuCount := gpuCount(pod)
 		totalCapacity := gpuCapacity * float64(gpuCount)
 
 		// Get GPU cache utilization
-		metricVal, err := r.cache.GetMetricValueByPodModel(pod.Name, pod.Namespace, ctx.Model, metrics.GPUCacheUsagePerc)
+		headroom, err := podHeadroom(pod, ctx, r.cache)
 		if err != nil {
 			klog.V(4).ErrorS(err, "failed to get GPU metrics for pod", "pod", pod.Name)
 			continue
 		}
-
-		currentUtilization := metricVal.GetSimpleValue()
-		headroom := 1.0 - currentUtilization
+		currentUtilization := 1.0 - headroom
 		capacityWeight := totalCapacity / 80.0
 		computeWeight := r.getGpuComputePower(gpuType)
 		score := headroom * capacityWeight * computeWeight

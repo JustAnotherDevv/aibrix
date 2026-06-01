@@ -513,10 +513,7 @@ func (r *tenantQuotaRouter) allowedGPUTypesForTenant(tenantID string) map[string
 // - Penalizes pods whose GPU type would exceed the tenant's cost budget
 // - Boosts score for tenants with higher priority (fair-share)
 func (r *tenantQuotaRouter) ScoreAll(ctx *types.RoutingContext, readyPodList types.PodList) ([]float64, []bool, error) {
-	tenantID := "anonymous"
-	if ctx.User != nil && *ctx.User != "" {
-		tenantID = *ctx.User
-	}
+	tenantID := userID(ctx)
 	ts := r.registry.GetOrCreate(tenantID)
 	allowedGPUs := r.allowedGPUTypesForTenant(tenantID)
 	weight := r.fairShareWeight(tenantID, nil)
@@ -579,10 +576,7 @@ func estimateTokens(ctx *types.RoutingContext) int {
 
 // Route selects the best pod respecting tenant quotas, fair-share, and GPU constraints
 func (r *tenantQuotaRouter) Route(ctx *types.RoutingContext, readyPodList types.PodList) (string, error) {
-	tenantID := "anonymous"
-	if ctx.User != nil && *ctx.User != "" {
-		tenantID = *ctx.User
-	}
+	tenantID := userID(ctx)
 	ts := r.registry.GetOrCreate(tenantID)
 
 	// Check quota

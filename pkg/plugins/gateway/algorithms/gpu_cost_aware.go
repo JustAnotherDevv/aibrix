@@ -236,30 +236,16 @@ func (r gpuCostAwareRouter) getPodCostClass(pod *v1.Pod) string {
 
 // totalCostPerHour returns the total hourly cost of running the pod's GPUs
 func (r gpuCostAwareRouter) totalCostPerHour(pod *v1.Pod, gpuType string) float64 {
-	gpuCount := 1
-	for _, container := range pod.Spec.Containers {
-		if gpuQty, ok := container.Resources.Limits["nvidia.com/gpu"]; ok {
-			gpuCount = int(gpuQty.Value())
-			break
-		}
-	}
-	return r.effectiveCostPerHour(gpuType) * float64(gpuCount)
+	return r.effectiveCostPerHour(gpuType) * float64(gpuCount(pod))
 }
 
 // totalPowerWatts returns the TDP-based power draw of the pod's GPUs
 func (r gpuCostAwareRouter) totalPowerWatts(pod *v1.Pod, gpuType string) float64 {
-	gpuCount := 1
-	for _, container := range pod.Spec.Containers {
-		if gpuQty, ok := container.Resources.Limits["nvidia.com/gpu"]; ok {
-			gpuCount = int(gpuQty.Value())
-			break
-		}
-	}
 	tdp, ok := gpuTDPWatts[gpuType]
 	if !ok {
 		tdp = 300.0
 	}
-	return tdp * float64(gpuCount)
+	return tdp * float64(gpuCount(pod))
 }
 
 // estimatedTokensPerSecond estimates throughput for a GPU at current utilization
@@ -395,10 +381,7 @@ func (r gpuCostAwareRouter) ScoreAll(ctx *types.RoutingContext, readyPodList typ
 	scores := make([]float64, len(pods))
 	scored := make([]bool, len(pods))
 
-	namespace := ""
-	if ctx.User != nil {
-		namespace = *ctx.User
-	}
+	namespace := userID(ctx)
 	for i, pod := range pods {
 		gpuType := GetGpuTypeFromPod(pod)
 		score, ok := r.computeScore(pod, namespace, ctx.Model, gpuType)
@@ -425,10 +408,7 @@ func (r gpuCostAwareRouter) Route(ctx *types.RoutingContext, readyPodList types.
 	maxScore := -math.MaxFloat64
 	var candidatePods []*v1.Pod
 
-	userNs := ""
-	if ctx.User != nil {
-		userNs = *ctx.User
-	}
+	userNs := userID(ctx)
 	for _, pod := range readyPodList.All() {
 		gpuType := GetGpuTypeFromPod(pod)
 		costPerHour := r.totalCostPerHour(pod, gpuType)
