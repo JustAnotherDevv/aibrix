@@ -571,7 +571,10 @@ func estimateTokens(ctx *types.RoutingContext) int {
 	return 1000
 }
 
-// Route selects the best pod respecting tenant quotas, fair-share, and GPU constraints
+// Route selects the best pod respecting tenant quotas, fair-share, and GPU constraints.
+// The scoring loop is identical to ScoreAll, so we delegate to it and pick argmax here;
+// quota-exceeded penalty (0.1x) is applied uniformly afterwards since the relative
+// ranking between pods is unchanged.
 func (r *tenantQuotaRouter) Route(ctx *types.RoutingContext, readyPodList types.PodList) (string, error) {
 	tenantID := userID(ctx)
 	ts := r.registry.GetOrCreate(tenantID)
@@ -583,7 +586,6 @@ func (r *tenantQuotaRouter) Route(ctx *types.RoutingContext, readyPodList types.
 		klog.V(2).Infof("tenant %s quota exceeded: %s", tenantID, reason)
 		tenantQuotaRejections.WithLabelValues(tenantID, ts.Tier.String(), reason).Inc()
 		if r.rejectOnQuotaExceeded {
-			// Caller can detect this via metrics; for now, fall through to random
 			klog.V(2).Infof("rejecting request for tenant %s (quota exceeded)", tenantID)
 		}
 		// Fall through to fair-share routing with reduced weight
@@ -596,75 +598,51 @@ func (r *tenantQuotaRouter) Route(ctx *types.RoutingContext, readyPodList types.
 		}
 	}()
 
-	// Score pods
-	allowedGPUs := r.allowedGPUTypesForTenant(tenantID)
-	weight := r.fairShareWeight(tenantID, nil)
+	scores, scored, err := r.ScoreAll(ctx, readyPodList)
+	if err != nil {
+		return "", err
+	}
+	pods := readyPodList.All()
+	maxScore := -math.MaxFloat64
+	var candidates []*v1.Pod
+	for i, p := range pods {
+		if !scored[i] {
+			continue
+		}
+		s := scores[i]
+		if !allowed {
+			s *= 0.1
+		}
+		if s > maxScore {
+			maxScore = s
+			candidates = []*v1.Pod{p}
+		} else if s == maxScore {
+			candidates = append(candidates, p)
+		}
+	}
 
 	var targetPod *v1.Pod
-	maxScore := -math.MaxFloat64
-	var candidatePods []*v1.Pod
-
-	for _, pod := range readyPodList.All() {
-		gpuType := GetGpuTypeFromPod(pod)
-
-		// Skip if GPU not allowed for this tenant
-		if allowedGPUs != nil && !allowedGPUs[strings.ToLower(gpuType)] {
-			continue
-		}
-
-		metricVal, err := r.cache.GetMetricValueByPodModel(pod.Name, pod.Namespace, ctx.Model, metrics.GPUCacheUsagePerc)
-		if err != nil {
-			klog.V(4).ErrorS(err, "failed to get metrics for pod", "pod", pod.Name)
-			continue
-		}
-		utilization := metricVal.GetSimpleValue()
-		headroom := 1.0 - utilization
-		score := headroom * (1.0 + float64(weight)/10.0)
-
-		// SLA penalty
-		if ts.Quota.TargetLatencyMs > 0 && utilization > 0.85 {
-			score *= 0.5
-		}
-
-		// Quota exceeded penalty: route to least-busy pod to spread load
-		if !allowed {
-			score *= 0.1
-		}
-
-		if score > maxScore {
-			maxScore = score
-			candidatePods = []*v1.Pod{pod}
-		} else if score == maxScore {
-			candidatePods = append(candidatePods, pod)
-		}
-	}
-
-	if len(candidatePods) > 0 {
-		targetPod = candidatePods[rand.Intn(len(candidatePods))]
-	}
-
-	// Fallback
-	if targetPod == nil {
-		var err error
-		targetPod, err = SelectRandomPodAsFallback(ctx, readyPodList.All(), rand.Intn)
+	if len(candidates) > 0 {
+		targetPod = candidates[rand.Intn(len(candidates))]
+		klog.V(4).Infof("tenant-quota: tenant=%s tier=%s pod=%s score=%.4f",
+			tenantID, ts.Tier, targetPod.Name, maxScore)
+	} else {
+		targetPod, err = SelectRandomPodAsFallback(ctx, pods, rand.Intn)
 		if err != nil {
 			return "", err
 		}
 		klog.V(4).Infof("tenant-quota fallback: tenant=%s pod=%s", tenantID, targetPod.Name)
-	} else {
-		// Record cost (rough estimate)
+	}
+
+	if targetPod != nil {
+		// Record cost (rough estimate: 30s of pod's hourly cost)
 		costPerHour := lookupGPU(GetGpuTypeFromPod(targetPod)).CostPerHr
-		// Assume 30s average request duration
 		estCost := costPerHour * (30.0 / 3600.0)
 		if overBudget := ts.RecordCost(estCost); overBudget {
 			klog.V(2).Infof("tenant %s exceeded hourly cost budget ($%.2f > $%.2f)",
 				tenantID, ts.HourCost, ts.Quota.MaxCostPerHour)
 		}
-		klog.V(4).Infof("tenant-quota: tenant=%s tier=%s pod=%s score=%.4f",
-			tenantID, ts.Tier, targetPod.Name, maxScore)
-	}
-
-	if targetPod == nil {
+	} else {
 		return "", fmt.Errorf("no pods to forward request")
 	}
 

@@ -99,60 +99,44 @@ func (r gpuAwareRouter) Polarity() types.Polarity {
 	return types.PolarityMost
 }
 
-// Route selects the pod with the best GPU headroom for the request
+// Route selects the pod with the best GPU headroom for the request.
+// It reuses ScoreAll and then picks argmax over the per-pod scores, so the
+// route selection is by construction consistent with what ScoreAll would report.
 func (r gpuAwareRouter) Route(ctx *types.RoutingContext, readyPodList types.PodList) (string, error) {
-	var targetPod *v1.Pod
+	scores, scored, err := r.ScoreAll(ctx, readyPodList)
+	if err != nil {
+		return "", err
+	}
+	pods := readyPodList.All()
 	maxScore := -math.MaxFloat64
-	var candidatePods []*v1.Pod
-
-	for _, pod := range readyPodList.All() {
-		gpuType := GetGpuTypeFromPod(pod)
-		gpuCapacity := GetGpuCapacityFromPod(pod)
-		gpuCount := gpuCount(pod)
-		totalCapacity := gpuCapacity * float64(gpuCount)
-
-		// Get GPU cache utilization
-		headroom, err := podHeadroom(pod, ctx, r.cache)
-		if err != nil {
-			klog.V(4).ErrorS(err, "failed to get GPU metrics for pod", "pod", pod.Name)
+	var candidates []*v1.Pod
+	for i, p := range pods {
+		if !scored[i] {
 			continue
 		}
-		currentUtilization := 1.0 - headroom
-		capacityWeight := totalCapacity / 80.0
-		computeWeight := r.getGpuComputePower(gpuType)
-		score := headroom * capacityWeight * computeWeight
-
-		klog.V(4).Infof("pod: %s, gpu: %s, capacity: %.0fGiB, count: %d, util: %.2f, score: %.4f",
-			pod.Name, gpuType, totalCapacity, gpuCount, currentUtilization, score)
-
-		if score > maxScore {
-			maxScore = score
-			candidatePods = []*v1.Pod{pod}
-		} else if score == maxScore {
-			candidatePods = append(candidatePods, pod)
+		if scores[i] > maxScore {
+			maxScore = scores[i]
+			candidates = []*v1.Pod{p}
+		} else if scores[i] == maxScore {
+			candidates = append(candidates, p)
 		}
 	}
 
-	if len(candidatePods) > 0 {
-		targetPod = candidatePods[rand.Intn(len(candidatePods))]
-	}
-
-	// Fallback to random if no valid metrics
-	if targetPod == nil {
-		var err error
-		targetPod, err = SelectRandomPodAsFallback(ctx, readyPodList.All(), rand.Intn)
+	var targetPod *v1.Pod
+	if len(candidates) > 0 {
+		targetPod = candidates[rand.Intn(len(candidates))]
+		klog.V(4).Infof("gpu-aware select targetPod: %s(%s) score: %.4f", targetPod.Name, targetPod.Status.PodIP, maxScore)
+	} else {
+		targetPod, err = SelectRandomPodAsFallback(ctx, pods, rand.Intn)
 		if err != nil {
 			return "", err
 		}
 		klog.V(4).Infof("fallback select targetPod: %s(%s)", targetPod.Name, targetPod.Status.PodIP)
-	} else {
-		klog.V(4).Infof("gpu-aware select targetPod: %s(%s) score: %.4f", targetPod.Name, targetPod.Status.PodIP, maxScore)
 	}
 
 	if targetPod == nil {
 		return "", fmt.Errorf("no pods to forward request")
 	}
-
 	klog.V(4).Infof("targetPod: %s(%s)", targetPod.Name, targetPod.Status.PodIP)
 	ctx.SetTargetPod(targetPod)
 	return ctx.TargetAddress(), nil
