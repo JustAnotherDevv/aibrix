@@ -304,6 +304,21 @@ type plan struct {
 
 // optimalPlan finds the cheapest (replicas x GPU type) configuration that
 // satisfies the QPS target and all configured constraints.
+// planFor computes the (replicas, totalHourlyCost) for one candidate entry,
+// clamping replicas to a minimum of 1.
+func planFor(entry GPUCostEntry, observedQPS float64, cfg CPAConfig, candidates []GPUCostEntry) plan {
+	replicas := replicasForQPS(observedQPS, entry, cfg)
+	if replicas <= 0 {
+		replicas = 1
+	}
+	return plan{
+		Entry:                entry,
+		Replicas:             replicas,
+		TotalHourlyCost:      float64(replicas) * entry.HourlyCostUSD,
+		CandidatesConsidered: candidates,
+	}
+}
+
 func (a *CPAAlgorithm) optimalPlan(observedQPS float64, cfg CPAConfig) (plan, error) {
 	a.mu.RLock()
 	catalog := a.catalog
@@ -317,28 +332,20 @@ func (a *CPAAlgorithm) optimalPlan(observedQPS float64, cfg CPAConfig) (plan, er
 		return plan{}, fmt.Errorf("cpa: no candidate GPU types configured")
 	}
 
+	// For min-latency: take the first feasible (which is the fastest
+	// because candidateEntries sorts by compute). For all other modes:
+	// take the cheapest feasible one under the optional budget cap.
+	pickFirst := cfg.Mode == CPAModeMinLatency
+
 	var best plan
 	best.TotalHourlyCost = math.Inf(1)
 	for _, entry := range candidates {
-		replicas := replicasForQPS(observedQPS, entry, cfg)
-		if replicas <= 0 {
-			replicas = 1
-		}
-		totalCost := float64(replicas) * entry.HourlyCostUSD
-		if cfg.MaxCostPerHour > 0 && totalCost > cfg.MaxCostPerHour {
+		p := planFor(entry, observedQPS, cfg, candidates)
+		if cfg.MaxCostPerHour > 0 && p.TotalHourlyCost > cfg.MaxCostPerHour {
 			continue
 		}
-		// For min-latency: take the first feasible (which is the fastest
-		// because candidateEntries sorts by compute). For all other modes:
-		// take the cheapest.
-		pickFirst := cfg.Mode == CPAModeMinLatency
-		if pickFirst || totalCost < best.TotalHourlyCost {
-			best = plan{
-				Entry:                entry,
-				Replicas:             replicas,
-				TotalHourlyCost:      totalCost,
-				CandidatesConsidered: candidates,
-			}
+		if pickFirst || p.TotalHourlyCost < best.TotalHourlyCost {
+			best = p
 			if pickFirst {
 				break
 			}
@@ -348,18 +355,9 @@ func (a *CPAAlgorithm) optimalPlan(observedQPS float64, cfg CPAConfig) (plan, er
 		// Fallback: budget was too tight for every candidate. Pick the
 		// cheapest raw cost so we degrade gracefully instead of erroring.
 		for _, entry := range candidates {
-			replicas := replicasForQPS(observedQPS, entry, cfg)
-			if replicas <= 0 {
-				replicas = 1
-			}
-			totalCost := float64(replicas) * entry.HourlyCostUSD
-			if totalCost < best.TotalHourlyCost {
-				best = plan{
-					Entry:                entry,
-					Replicas:             replicas,
-					TotalHourlyCost:      totalCost,
-					CandidatesConsidered: candidates,
-				}
+			p := planFor(entry, observedQPS, cfg, candidates)
+			if p.TotalHourlyCost < best.TotalHourlyCost {
+				best = p
 			}
 		}
 	}
