@@ -23,7 +23,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/vllm-project/aibrix/pkg/cache"
 	metrics "github.com/vllm-project/aibrix/pkg/metrics"
@@ -89,39 +88,32 @@ type CostAwareConfig struct {
 	PreferReserved     bool    // if true, prefer reserved instances (40-60% cheaper)
 }
 
-var (
-	defaultConfigOnce sync.Once
-	defaultConfig     CostAwareConfig
-)
+// defaultConfig is populated at init from env vars; tests may override via SetConfig.
+var defaultConfig = CostAwareConfig{
+	Strategy:           parseStrategy(getEnv("AIBRIX_ROUTING_STRATEGY", "balanced")),
+	CostWeight:         getEnvFloat("AIBRIX_COST_WEIGHT", 0.4),
+	PerformanceWeight:  getEnvFloat("AIBRIX_PERF_WEIGHT", 0.4),
+	PowerWeight:        getEnvFloat("AIBRIX_POWER_WEIGHT", 0.2),
+	MaxCostPer1kTokens: getEnvFloat("AIBRIX_MAX_COST_PER_1K", 0.0),
+	MaxLatencyMs:       getEnvFloat("AIBRIX_MAX_LATENCY_MS", 0.0),
+	PowerBudgetWatts:   getEnvFloat("AIBRIX_POWER_BUDGET_W", 0.0),
+	PreferSpot:         getEnvBool("AIBRIX_PREFER_SPOT", false),
+	PreferReserved:     getEnvBool("AIBRIX_PREFER_RESERVED", false),
+}
 
 // DefaultConfig returns a balanced default configuration that can be tuned
 // via environment variables:
 //
 //	AIBRIX_ROUTING_STRATEGY   - balanced, low-cost, low-latency, low-power, sla-optimized
-//	AIBRIX_COST_WEIGHT        - float 0.0-1.0 (default 0.5 for balanced)
-//	AIBRIX_PERF_WEIGHT        - float 0.0-1.0 (default 0.5 for balanced)
-//	AIBRIX_POWER_WEIGHT       - float 0.0-1.0 (default 0.3 for balanced)
+//	AIBRIX_COST_WEIGHT        - float 0.0-1.0 (default 0.4 for balanced)
+//	AIBRIX_PERF_WEIGHT        - float 0.0-1.0 (default 0.4 for balanced)
+//	AIBRIX_POWER_WEIGHT       - float 0.0-1.0 (default 0.2 for balanced)
 //	AIBRIX_MAX_COST_PER_1K    - float USD (no default)
 //	AIBRIX_MAX_LATENCY_MS     - float ms (no default)
 //	AIBRIX_POWER_BUDGET_W     - float watts (no default)
 //	AIBRIX_PREFER_SPOT        - true/false
 //	AIBRIX_PREFER_RESERVED    - true/false
-func DefaultConfig() CostAwareConfig {
-	defaultConfigOnce.Do(func() {
-		defaultConfig = CostAwareConfig{
-			Strategy:           parseStrategy(getEnv("AIBRIX_ROUTING_STRATEGY", "balanced")),
-			CostWeight:         getEnvFloat("AIBRIX_COST_WEIGHT", 0.4),
-			PerformanceWeight:  getEnvFloat("AIBRIX_PERF_WEIGHT", 0.4),
-			PowerWeight:        getEnvFloat("AIBRIX_POWER_WEIGHT", 0.2),
-			MaxCostPer1kTokens: getEnvFloat("AIBRIX_MAX_COST_PER_1K", 0.0),
-			MaxLatencyMs:       getEnvFloat("AIBRIX_MAX_LATENCY_MS", 0.0),
-			PowerBudgetWatts:   getEnvFloat("AIBRIX_POWER_BUDGET_W", 0.0),
-			PreferSpot:         getEnvBool("AIBRIX_PREFER_SPOT", false),
-			PreferReserved:     getEnvBool("AIBRIX_PREFER_RESERVED", false),
-		}
-	})
-	return defaultConfig
-}
+func DefaultConfig() CostAwareConfig { return defaultConfig }
 
 // SetConfig allows tests / advanced users to override the default config
 func SetConfig(cfg CostAwareConfig) {

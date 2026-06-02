@@ -264,20 +264,17 @@ type TenantRegistry struct {
 	stopCleanup chan struct{}
 }
 
-var (
-	defaultRegistryOnce sync.Once
-	defaultRegistry     *TenantRegistry
-)
+// defaultRegistry is the singleton tenant registry, populated at init from env vars
+// with a background cleanup goroutine. Tests may override via SetDefaultRegistry.
+var defaultRegistry = func() *TenantRegistry {
+	r := NewTenantRegistry(TierStandard)
+	r.LoadFromEnv()
+	go r.startCleanup()
+	return r
+}()
 
 // DefaultRegistry returns the singleton tenant registry
-func DefaultRegistry() *TenantRegistry {
-	defaultRegistryOnce.Do(func() {
-		defaultRegistry = NewTenantRegistry(TierStandard)
-		defaultRegistry.LoadFromEnv()
-		go defaultRegistry.startCleanup()
-	})
-	return defaultRegistry
-}
+func DefaultRegistry() *TenantRegistry { return defaultRegistry }
 
 // SetDefaultRegistry overrides the singleton (for tests)
 func SetDefaultRegistry(r *TenantRegistry) {
